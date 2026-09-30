@@ -356,81 +356,173 @@ static esp_err_t handler_ping(httpd_req_t *req) {
 // ---------------------------------------------------------------------------
 // 页面:令牌模板 + 按设备语言渲染(单一骨架,可见文案走 tr(),避免双语两份 HTML)
 // ---------------------------------------------------------------------------
+// 设计基线:暗色单主题,色板与设备端 UI 一致。样式抽成独立资源由 /app.css 提供,
+// 不内联进模板 —— 共享变量只维护一份,同时每页渲染缓冲省下约 1.3KB。页面不引用
+// 任何外链资源:设备只跑 httpd,页面必须在完全离线的局域网里自洽。
+// ---------------------------------------------------------------------------
+static const char CSS_BASE[] =
+    ":root{--bg:#10151b;--surface:#1a222c;--surface-2:#232c38;--border:#2a3542;"
+    "--primary:#35c9b0;--primary-soft:#1e3b39;--on-primary:#08221e;--fg:#e8edf2;"
+    "--muted:#8ca0b3;--danger:#e8695c;--danger-soft:#33222a;--radius:14px;--rs:10px;"
+    "--shadow:0 8px 24px #080e14}"
+    "*,*:before,*:after{box-sizing:border-box}"
+    "body{margin:0;min-height:100vh;background:var(--bg);color:var(--fg);font-size:15px;"
+    "line-height:1.5;font-family:system-ui,-apple-system,'Segoe UI','PingFang SC',"
+    "'Microsoft YaHei',sans-serif;-webkit-font-smoothing:antialiased}"
+    "h1{font-size:1.05rem;font-weight:650;margin:0}"
+    ".brand{display:flex;align-items:center;gap:11px}"
+    ".mark{width:34px;height:34px;flex:none;display:grid;place-items:center;font-size:1.05rem;"
+    "border-radius:10px;background:var(--primary-soft);color:var(--primary)}"
+    ".sub{color:var(--muted);font-size:.82rem;margin:3px 0 0}"
+    "button{font-family:inherit;cursor:pointer;border:none;transition:transform .12s}"
+    "button:active{transform:scale(.97)}"
+    "button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}"
+    "@media (prefers-reduced-motion:no-preference){"
+    ".enter{animation:rise .38s cubic-bezier(.2,.8,.3,1) both}"
+    "@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}"
+    ".fade{animation:fadein .22s ease-out both}"
+    "@keyframes fadein{from{opacity:0}to{opacity:1}}}"
+    "button:active{transform:scale(.97)}}";
+
 static const char LOGIN_TPL[] =
-    "<!doctype html><html><head><meta charset='utf-8'>"
+    "<!doctype html><html lang='@LANG@'><head><meta charset='utf-8'>"
     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>FoloTOTP</title><style>"
-    "body{font-family:system-ui,sans-serif;background:#10151b;color:#e8edf2;"
-    "display:flex;min-height:90vh;align-items:center;justify-content:center;margin:0}"
-    "div{background:#1a222c;padding:32px;border-radius:16px;width:300px;text-align:center}"
-    "input{width:100%;box-sizing:border-box;padding:14px;font-size:24px;letter-spacing:8px;"
-    "text-align:center;border-radius:10px;border:1px solid #2a3542;background:#10151b;"
-    "color:inherit}button{width:100%;padding:12px;margin-top:12px;border:none;"
-    "border-radius:10px;background:#35c9b0;color:#08221e;font-weight:600;font-size:16px}"
-    "p{font-size:13px;color:#8ca0b3}#m{font-size:13px;min-height:16px}.err{color:#e05b4e}"
-    "</style></head><body><div><h2>&#128273; FoloTOTP</h2>"
-    "<p>@PROMPT@</p>"
-    "<input id='c' inputmode='numeric' maxlength='8' autocomplete='off'>"
-    "<button onclick='go()'>@SIGNIN@</button><p id='m'></p></div>"
-    "<script>function go(){fetch('/api/login',{method:'POST',"
-    "headers:{'Content-Type':'application/json'},body:JSON.stringify({code:document.getElementById('c').value})})"
-    ".then(r=>r.json()).then(j=>{if(j.ok){location.reload();}else{var m=document.getElementById('m');"
-    "m.className='err';m.textContent=j.error+(j.left?('('+j.left+')'):'');}});}"
-    "document.getElementById('c').addEventListener('keydown',e=>{if(e.key=='Enter')go();});"
+    "<meta name='color-scheme' content='dark'><title>FoloTOTP</title>"
+    "<link rel='stylesheet' href='/app.css'><style>"
+    "body{display:grid;place-items:center;padding:24px}"
+    ".card{width:100%;max-width:336px;background:var(--surface);border:1px solid var(--border);"
+    "border-radius:18px;box-shadow:var(--shadow);padding:30px 24px 20px;text-align:center}"
+    ".brand{justify-content:center}"
+    ".code{position:relative;margin:24px 0 20px}"
+    // The real input is absolutely positioned over the slots and kept
+    // transparent, so a tap anywhere on the code opens the soft keyboard on a
+    // phone. It lives outside .slots so box.children stays the 8 slots only.
+    ".code input{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:none;"
+    "background:none;font-size:16px;letter-spacing:1em}"
+    ".slots{display:flex;gap:7px;justify-content:center}"
+    ".slot{width:31px;height:44px;display:grid;place-items:center;border-radius:var(--rs);"
+    "background:var(--surface-2);border:1px solid var(--border);font-size:1.25rem;font-weight:600;"
+    "font-variant-numeric:tabular-nums;transition:border-color .15s,box-shadow .15s}"
+    ".slot.on{border-color:var(--primary);box-shadow:0 0 0 3px #1e3b39}"
+    "button.primary{width:100%;padding:13px;border-radius:var(--rs);background:var(--primary);"
+    "color:var(--on-primary);font-weight:650;font-size:.95rem}"
+    "#m{min-height:20px;margin:14px 0 0;font-size:.83rem;color:var(--muted)}"
+    "#m.err{color:var(--danger)}"
+    "</style></head><body>"
+    "<div class='card enter'><div class='brand'><span class='mark' aria-hidden='true'>"
+    "&#128273;</span><h1>FoloTOTP</h1></div>"
+    "<p class='sub' style='margin-top:14px'>@PROMPT@</p>"
+    "<form onsubmit='return go()'>"
+    "<div class='code'><div class='slots' id='slots'></div>"
+    "<input id='c' type='text' inputmode='numeric' pattern='[0-9]*'"
+    " maxlength='8' autocomplete='one-time-code' aria-label='@LBLCODE@'></div>"
+    "<button class='primary' type='submit'>@SIGNIN@</button></form>"
+    "<p id='m' role='status' aria-live='polite'></p></div>"
+    "<script>var inp=document.getElementById('c'),box=document.getElementById('slots');"
+    "for(var i=0;i<8;i++){var d=document.createElement('div');d.className='slot';"
+    "box.appendChild(d);}"
+    "function render(){var v=inp.value,k=box.children;"
+    "for(var i=0;i<8;i++){k[i].textContent=v.charAt(i);"
+    "k[i].className='slot'+(i===v.length?' on':'');}}"
+    "inp.addEventListener('input',render);render();"
+    "function go(){if(inp.value.length!==8){var m=document.getElementById('m');"
+    "m.className='err';m.textContent='@WEB_NEED8@';return false;}"
+    "fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},"
+    "body:JSON.stringify({code:inp.value})}).then(function(r){return r.json();}).then(function(j){"
+    "if(j.ok){location.reload();return;}var m=document.getElementById('m');m.className='err';"
+    "m.textContent=j.error+(j.left?(' · '+j.left):'');"
+    "inp.value='';render();}).catch(function(){var m=document.getElementById('m');"
+    "m.className='err';m.textContent='@WEB_NETERR@';});return false;}"
     "</script></body></html>";
 
 static const char ADMIN_TPL[] =
-    "<!doctype html><html><head><meta charset='utf-8'>"
+    "<!doctype html><html lang='@LANG@'><head><meta charset='utf-8'>"
     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>FoloTOTP</title><style>"
-    "body{font-family:system-ui,sans-serif;background:#10151b;color:#e8edf2;"
-    "margin:0;padding:20px;max-width:460px;margin-inline:auto}"
-    "h2{font-size:18px}table{width:100%;border-collapse:collapse;margin:10px 0}"
-    "td{padding:10px;border-bottom:1px solid #232c38;font-size:14px}tr:last-child td{border-bottom:none}"
-    "input,select,button{box-sizing:border-box;padding:10px;border-radius:10px;"
-    "border:1px solid #2a3542;background:#1a222c;color:inherit;font-size:14px}"
-    "button{background:#35c9b0;color:#08221e;font-weight:600;border:none;cursor:pointer}"
-    ".del{background:#3a2226;color:#e05b4e;padding:6px 12px}.ghost{background:#232c38;color:#e8edf2}"
-    "form{background:#1a222c;padding:16px;border-radius:14px;margin-top:16px}"
-    "label{font-size:12px;color:#8ca0b3;display:block;margin:8px 0 4px}"
-    ".row{display:flex;gap:8px}.row>*{flex:1}#m{font-size:13px;min-height:16px;"
-    "margin:8px 0}.err{color:#e05b4e}.ok{color:#35c9b0}"
-    "</style></head><body><h2>&#128273; FoloTOTP @HEADING@</h2>"
-    "<div id='m'></div><table id='tb'></table>"
+    "<meta name='color-scheme' content='dark'><title>FoloTOTP</title>"
+    "<link rel='stylesheet' href='/app.css'><style>"
+    "body{padding:26px 20px 44px;max-width:452px;margin-inline:auto}"
+    "header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}"
+    ".badge{flex:none;min-width:26px;height:26px;padding:0 9px;display:grid;place-items:center;"
+    "border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:.8rem;"
+    "font-weight:650;font-variant-numeric:tabular-nums}"
+    ".card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);"
+    "box-shadow:var(--shadow);margin-bottom:16px}"
+    ".card>h2{font-size:.74rem;font-weight:650;text-transform:uppercase;letter-spacing:.07em;"
+    "color:var(--muted);margin:0;padding:13px 16px;border-bottom:1px solid var(--border)}"
+    ".row{display:flex;align-items:center;gap:12px;padding:12px 12px 12px 16px;"
+    "border-bottom:1px solid var(--border)}"
+    ".row:last-child{border-bottom:none}"
+    ".meta{flex:1;min-width:0}"
+    ".name{font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+    ".spec{color:var(--muted);font-size:.78rem;margin-top:2px;font-variant-numeric:tabular-nums}"
+    ".empty{padding:24px 16px;text-align:center;color:var(--muted);font-size:.86rem}"
+    ".icon{flex:none;width:40px;height:40px;padding:0;display:grid;place-items:center;"
+    "background:var(--danger-soft);color:var(--danger);font-size:.95rem}"
+    ".ghost{width:100%;padding:12px;border-radius:var(--rs);background:transparent;color:var(--muted);"
+    "border:1px solid var(--border);font-size:.9rem}"
+    "label{display:block;font-size:.78rem;color:var(--muted);margin:0 0 6px}"
+    "input,select{width:100%;padding:11px 12px;border-radius:var(--rs);border:1px solid var(--border);"
+    "background:var(--surface-2);color:var(--fg);font-size:.92rem;font-family:inherit}"
+    "input:focus,select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px #1e3b39}"
+    ".fields{padding:16px}"
+    ".pair{display:flex;gap:10px;margin-top:14px}.pair>div{flex:1}"
+    ".note{font-size:.75rem;color:var(--muted);margin:14px 0 0}"
+    ".submit{display:block;width:calc(100% - 32px);margin:0 16px 16px;padding:12px;border-radius:var(--rs);"
+    "background:var(--primary);color:var(--on-primary);font-weight:650;font-size:.92rem}"
+    "#m{font-size:.85rem;padding:0 16px 12px;margin:0}"
+    "#m:empty{display:none}#m.err{color:var(--danger)}#m.ok{color:var(--primary)}"
+    "</style></head><body>"
+    "<header class='enter'><div class='brand'><span class='mark' aria-hidden='true'>"
+    "&#128273;</span><div><h1>FoloTOTP</h1><p class='sub'>@HEADING@</p></div></div>"
+    "<span class='badge' id='cnt'>0</span></header>"
+    "<div id='m' role='status' aria-live='polite'></div>"
+    "<section class='card enter'><h2>@LISTTITLE@</h2><div id='tb'></div></section>"
+    "<form class='card enter' onsubmit='return add()'><h2>@ADDTITLE@</h2>"
+    "<div class='fields'><label for='lb'>@LBLNAME@</label>"
+    "<input id='lb' maxlength='24' autocomplete='off' required>"
+    "<div class='pair'><div><label for='dg'>@LBLDIGITS@</label>"
+    "<select id='dg'><option value='6'>6</option><option value='8'>8</option></select></div>"
+    "<div><label for='pd'>@LBLPERIOD@</label><select id='pd'><option value='30'>30</option>"
+    "<option value='60'>60</option></select></div></div>"
+    "<div style='margin-top:14px'><label for='sc'>@LBLSECRET@</label>"
+    "<input id='sc' autocomplete='off' autocapitalize='off' autocorrect='off' spellcheck='false'"
+    " required></div>"
+    "<p class='note'>@NOTE@</p></div>"
+    "<button class='submit' type='submit'>@ADDBTN@</button></form>"
     "<button class='ghost' onclick='logout()'>@LOGOUT@</button>"
-    "<form onsubmit='return add()'><b style='font-size:14px'>@ADDTITLE@</b>"
-    "<label>@LBLNAME@</label><input id='lb' maxlength='24'>"
-    "<label>@LBLSECRET@</label><input id='sc' autocomplete='off'>"
-    "<div class='row'><div><label>@LBLDIGITS@</label><select id='dg'>"
-    "<option value='6'>6</option><option value='8'>8</option></select></div>"
-    "<div><label>@LBLPERIOD@</label><select id='pd'>"
-    "<option value='30'>30</option><option value='60'>60</option></select></div></div>"
-    "<p style='font-size:12px;color:#8ca0b3;margin-top:10px'>@NOTE@</p>"
-    "<button type='submit'>@ADDBTN@</button></form>"
-    "<script>"
-    "function msg(t,cls){var m=document.getElementById('m');m.textContent=t;m.className=cls||'';}"
-    "function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}"
-    "function load(){fetch('/api/entries').then(r=>{if(r.status==403){location.href='/';throw 0;}"
-    "return r.json();}).then(a=>{var tb=document.getElementById('tb');tb.innerHTML='';"
-    "if(!a.length){tb.innerHTML='<tr><td style=\"color:#8ca0b3\">@NOENT@</td></tr>';}"
-    "a.forEach(function(e){var row=document.createElement('tr');"
-    "row.innerHTML='<td>'+esc(e.label)+'</td><td style=\"color:#8ca0b3\">'+e.digits+'d/'+e.period+'s</td>"
-    "<td style=\"text-align:right\"><button class=\"del\" data-id=\"'+e.id+'\">@DELBTN@</button></td>';"
-    "tb.appendChild(row);});}).catch(function(){});}"
+    "<script>var cnt=document.getElementById('cnt');"
+    "function msg(t,cls){var m=document.getElementById('m');m.textContent=t;m.className='fade '+cls;}"
+    "function load(){fetch('/api/entries').then(function(r){"
+    "if(r.status==403){location.href='/';throw 0;}return r.json();}).then(function(a){"
+    "var tb=document.getElementById('tb');cnt.textContent=a.length;tb.innerHTML='';"
+    "if(!a.length){var p=document.createElement('div');p.className='empty fade';"
+    "p.textContent='@NOENT@';tb.appendChild(p);return;}"
+    "a.forEach(function(e,i){var row=document.createElement('div');row.className='row fade';"
+    "row.style.animationDelay=(i*45)+'ms';"
+    "var meta=document.createElement('div');meta.className='meta';"
+    "var nm=document.createElement('div');nm.className='name';nm.textContent=e.label;"
+    "var sp=document.createElement('div');sp.className='spec';"
+    "sp.textContent=e.digits+' · '+e.period+'s';meta.appendChild(nm);meta.appendChild(sp);"
+    "var b=document.createElement('button');b.className='icon';b.type='button';"
+    "b.setAttribute('data-id',e.id);b.setAttribute('aria-label','@DELBTN@');"
+    "b.textContent='\\u2715';row.appendChild(meta);row.appendChild(b);tb.appendChild(row);});"
+    "}).catch(function(){});}"
     "document.getElementById('tb').addEventListener('click',function(ev){"
-    "var b=ev.target.closest('button.del');if(b)del(b.getAttribute('data-id'));});"
+    "var b=ev.target.closest('button.icon');if(b)del(b.getAttribute('data-id'));});"
     "function del(id){fetch('/api/delete',{method:'POST',"
     "headers:{'Content-Type':'application/json'},body:JSON.stringify({id:+id})})"
-    ".then(r=>r.json()).then(j=>{msg(j.ok?'@DELETED@':j.error,j.ok?'ok':'err');load();});}"
+    ".then(function(r){return r.json();}).then(function(j){"
+    "msg(j.ok?'@DELETED@':j.error,j.ok?'ok':'err');load();}).catch(function(){"
+    "msg('@WEB_NETERR@','err');});}"
     "function add(){var lb=document.getElementById('lb').value.trim();"
-    "var sc=document.getElementById('sc').value.trim().replace(/[ -]/g,'').toUpperCase();"
+    "var sc=document.getElementById('sc').value.trim().replace(/[\\s-]/g,'').toUpperCase();"
     "fetch('/api/entries',{method:'POST',headers:{'Content-Type':'application/json'},"
     "body:JSON.stringify({label:lb,secret:sc,digits:+document.getElementById('dg').value,"
-    "period:+document.getElementById('pd').value})}).then(r=>r.json()).then(j=>{"
-    "if(j.ok){msg('@ADDED@','ok');document.getElementById('lb').value='';"
+    "period:+document.getElementById('pd').value})}).then(function(r){return r.json();})"
+    ".then(function(j){if(j.ok){msg('@ADDED@','ok');document.getElementById('lb').value='';"
     "document.getElementById('sc').value='';load();}else{msg(j.error,'err');}})"
-    ".catch(function(){msg('network error','err');});return false;}"
-    "function logout(){fetch('/api/logout',{method:'POST'}).then(()=>location.href='/');}"
+    ".catch(function(){msg('@WEB_NETERR@','err');});return false;}"
+    "function logout(){fetch('/api/logout',{method:'POST'}).then(function(){location.href='/';});}"
     "load();setInterval(load,60000);</script></body></html>";
 
 // 令牌 → 文案映射(渲染时查 tr());未知令牌原样保留,便于发现遗漏。
@@ -443,28 +535,43 @@ static const tok_map_t k_tokens[] = {
     { "@PROMPT@", TR_WEB_LOGIN_PROMPT },
     { "@SIGNIN@", TR_WEB_SIGN_IN },
     { "@HEADING@", TR_WEB_HEADING },
+    { "@LISTTITLE@", TR_WEB_LIST_TITLE },
     { "@LOGOUT@", TR_WEB_LOGOUT },
     { "@ADDTITLE@", TR_WEB_ADD_TITLE },
     { "@LBLNAME@", TR_WEB_LABEL_NAME },
     { "@LBLSECRET@", TR_WEB_LABEL_SECRET },
     { "@LBLDIGITS@", TR_WEB_LABEL_DIGITS },
     { "@LBLPERIOD@", TR_WEB_LABEL_PERIOD },
+    { "@LBLCODE@", TR_WEB_LABEL_CODE },
     { "@NOTE@", TR_WEB_NOTE },
     { "@ADDBTN@", TR_WEB_ADD_BTN },
     { "@NOENT@", TR_WEB_NO_ENTRIES },
     { "@ADDED@", TR_WEB_ADDED },
     { "@DELETED@", TR_WEB_DELETED },
     { "@DELBTN@", TR_DELETE },
+    { "@WEB_NEED8@", TR_WEB_NEED8 },
+    { "@WEB_NETERR@", TR_WEB_NETERR },
 };
 
-// 渲染缓冲:模板约 4.3KB,令牌替换后长度相近;静态分配避免每请求占堆。
-static char s_page_buf[6144];
+// 渲染缓冲:按实测的最大页面(ADMIN_TPL,简体中文 6008 B)取 8 KB,留出余量。
+// 静态分配避免每请求占堆;render_page() 超出时截断而非越界。
+static char s_page_buf[8192];
 
+// <html lang> 必须与页面文字一致,否则读屏软件会用错的发音规则念中文。
 static char *render_page(const char *tpl) {
     size_t o = 0;
     size_t cap = sizeof(s_page_buf);
+    const char *lang_tag = app_lang_current() == APP_LANG_ZH ? "zh-CN" : "en";
     for (const char *p = tpl; *p != '\0' && o + 1 < cap; ) {
         if (*p == '@') {
+            if (strncmp(p, "@LANG@", 6) == 0) {
+                size_t vl = strlen(lang_tag);
+                if (o + vl >= cap) vl = cap - o - 1;
+                memcpy(s_page_buf + o, lang_tag, vl);
+                o += vl;
+                p += 6;
+                continue;
+            }
             const char *end = strchr(p + 1, '@');
             if (end != NULL) {
                 size_t tlen = (size_t)(end - p + 1);
@@ -501,8 +608,17 @@ static esp_err_t handler_index(httpd_req_t *req) {
     return httpd_resp_send(req, page, HTTPD_RESP_USE_STRLEN);
 }
 
+// 样式独立成资源:两页共享一份变量,页面本身不必重复携带,浏览器也能缓存。
+// 内容不含任何用户数据,因此可以长缓存;设备重启后内容不变。
+static esp_err_t handler_css(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/css; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=86400");
+    return httpd_resp_send(req, CSS_BASE, HTTPD_RESP_USE_STRLEN);
+}
+
 static const httpd_uri_t URIS[] = {
     { .uri = "/", .method = HTTP_GET, .handler = handler_index },
+    { .uri = "/app.css", .method = HTTP_GET, .handler = handler_css },
     { .uri = "/api/login", .method = HTTP_POST, .handler = handler_login },
     { .uri = "/api/entries", .method = HTTP_GET, .handler = handler_entries },
     { .uri = "/api/entries", .method = HTTP_POST, .handler = handler_add },

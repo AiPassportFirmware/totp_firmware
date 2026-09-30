@@ -1,4 +1,5 @@
 build/
+build21/
 sdkconfig
 sdkconfig.old
 managed_components/
