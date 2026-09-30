@@ -400,7 +400,7 @@ static void build_menu_page(void) {
     }
     s_menu_msg = make_label(s_scr, "", FONT_SC, lv_color_hex(C_ERR));
     lv_obj_align(s_menu_msg, LV_ALIGN_BOTTOM_MID, 0, -34);
-    make_hint(s_scr, "上/下 选择   确定 进入   长按 返回");
+    make_hint(s_scr, tr(TR_HINT_MENU));
     menu_highlight();
     lv_screen_load(s_scr);
 }
