@@ -15,6 +15,23 @@
 - 添加字库前评估 Flash 与内部 RAM 影响；ESP32-C3 无 PSRAM。
 - 不提交许可不允许分发的字库。
 
+## 字库（fonts）
+
+| 文件 | 说明 |
+| --- | --- |
+| [`fonts/app_font_sc_16.c`](fonts/app_font_sc_16.c) | FoloTOTP 应用 UI 使用的生成字体（简体正文）。思源黑体 Regular，16px，4bpp，无压缩、无字距调整。3872 个字形：可打印 ASCII 0x20-0x7E + 3777 个简体汉字/标点（GB2312 一级常用字 + 界面文案）。已提交，经 `main/CMakeLists.txt` 编入固件。 |
+| [`fonts/SourceHanSansSC-Regular.otf`](fonts/SourceHanSansSC-Regular.otf) | 再生成用的源字体（15MB，不提交，见 `.gitignore`）。下载：<https://github.com/adobe-fonts/source-han-sans/raw/release/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf>（镜像：<https://cdn.jsdelivr.net/gh/adobe-fonts/source-han-sans@release/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf>）。SHA-256：`f1d8611151880c6c336aabeac4640ef434fa13cbfbf1ffe82d0a71b2a5637256`。许可：SIL Open Font License 1.1（允许再分发）。 |
+
+再生成命令（需 Node.js/npx；字符清单 `build/sc_symbols.txt` 由 GB2312 一级字表
+加界面文案生成，生成脚本见本 README 的历史版本）：
+
+```bash
+npx lv_font_conv --no-compress --no-prefilter --no-kerning --bpp 4 --size 16   --font assets/fonts/SourceHanSansSC-Regular.otf   -r 0x20-0x7E   --symbols "$(cat build/sc_symbols.txt)"   --format lvgl --lv-include lvgl.h --force-fast-kern-format   -o assets/fonts/app_font_sc_16.c
+```
+
+生成子集约占 0.5MB Flash；再生成后以构建报告为准。覆盖集之外的字符在设备上
+显示为占位方框，策略见 [docs/totp-app.zh_CN.md](../docs/totp-app.zh_CN.md)。
+
 ## 图片（images）
 
 可复用的源图与生成的显示资产放在 `images/`。

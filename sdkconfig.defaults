@@ -23,22 +23,24 @@ CONFIG_LV_COLOR_DEPTH_16=y
 # transfer complete within the same budget.
 CONFIG_LV_DEF_REFR_PERIOD=20
 CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
+# TOTP 应用:大号验证码(48)+ 菜单(16)+ 远程管理二维码(qrcodegen,I1 画布 ~2.6KB)。
+CONFIG_LV_FONT_MONTSERRAT_48=y
+CONFIG_LV_USE_QRCODE=y
 # LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
-# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
-CONFIG_LV_MEM_SIZE_KILOBYTES=24
+# 应用含二维码画布与多页面共存(切换瞬态),24KB 偏紧,取 32KB。
+CONFIG_LV_MEM_SIZE_KILOBYTES=32
 
 # --- 系统 ---
 CONFIG_FREERTOS_HZ=1000
 
-# --- Bluetooth LE / NimBLE ---
-# ESP32-C3 仅支持 BLE；示例只启用单连接 peripheral 所需的最小 host 配置。
-CONFIG_BT_ENABLED=y
-CONFIG_BT_NIMBLE_ENABLED=y
-CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
-CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
-CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
-CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
-CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
-CONFIG_BT_NIMBLE_HOST_BASED_PRIVACY=n
-CONFIG_BT_NIMBLE_NVS_PERSIST=n
+# --- 网络 ---
+# TOTP 与解锁惩罚都依赖真实时钟:esp_netif_sntp 校时(连接后自动启动)。
+CONFIG_LWIP_SNTP_MAX_SERVERS=2
+# 远程管理/配网 HTTP 服务使用运行时 lru_purge_enable(IDF 5.5 无独立 Kconfig)。
+
+# --- Bluetooth ---
+# 本应用不使用蓝牙(Wi-Fi 配网走 SoftAP 网页):关闭 BT 栈,为无 PSRAM 的
+# Wi-Fi + LVGL + HTTP 并发腾出内部 RAM。需要 BLE 的派生应用再按需打开。
+CONFIG_BT_ENABLED=n

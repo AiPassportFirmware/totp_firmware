@@ -17,6 +17,26 @@ Store reusable font files and generated font sources in `fonts/`.
 - Check Flash and internal-RAM impact before adding a font; the ESP32-C3 has no PSRAM.
 - Do not commit fonts whose license does not permit redistribution.
 
+## Fonts
+
+| File | Details |
+| --- | --- |
+| [`fonts/app_font_sc_16.c`](fonts/app_font_sc_16.c) | Generated LVGL font used by the FoloTOTP application UI (Simplified Chinese body text). Source Han Sans SC Regular, 16 px, 4 bpp, no compression, no kerning. 3872 glyphs: printable ASCII 0x20-0x7E plus 3777 Simplified Chinese characters/punctuation (GB2312 Level-1 set plus UI copy). Committed; compiled into `main` via `main/CMakeLists.txt`. |
+| [`fonts/SourceHanSansSC-Regular.otf`](fonts/SourceHanSansSC-Regular.otf) | Source font for regeneration only (15 MB, not committed — see `.gitignore`). Download: <https://github.com/adobe-fonts/source-han-sans/raw/release/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf> (jsDelivr mirror: <https://cdn.jsdelivr.net/gh/adobe-fonts/source-han-sans@release/OTF/SimplifiedChinese/SourceHanSansSC-Regular.otf>). SHA-256: `f1d8611151880c6c336aabeac4640ef434fa13cbfbf1ffe82d0a71b2a5637256`. License: SIL Open Font License 1.1 (redistribution permitted). |
+
+Regeneration command (Node.js with npx; character list in the file
+`build/sc_symbols.txt` is produced from GB2312 Level-1 plus UI copy, see the
+repository history of this README for the generator script):
+
+```bash
+npx lv_font_conv --no-compress --no-prefilter --no-kerning --bpp 4 --size 16   --font assets/fonts/SourceHanSansSC-Regular.otf   -r 0x20-0x7E   --symbols "$(cat build/sc_symbols.txt)"   --format lvgl --lv-include lvgl.h --force-fast-kern-format   -o assets/fonts/app_font_sc_16.c
+```
+
+Flash cost of the generated subset is roughly 0.5 MB; verify with the firmware
+build report after regeneration. Characters outside the covered set render as
+placeholder boxes on the device; the policy is documented in
+[docs/totp-app.md](../docs/totp-app.md).
+
 ## Images
 
 Store reusable source images and generated display assets in `images/`.
