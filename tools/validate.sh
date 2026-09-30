@@ -32,6 +32,22 @@ run_static_checks() {
         tests/test_demo_navigation.c main/demo_navigation.c \
         -o "${test_dir}/test_demo_navigation"
     "${test_dir}/test_demo_navigation"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_app_totp.c main/app_totp.c \
+        -o "${test_dir}/test_app_totp"
+    "${test_dir}/test_app_totp"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_app_lock.c main/app_lock.c \
+        -o "${test_dir}/test_app_lock"
+    "${test_dir}/test_app_lock"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_app_kb.c main/app_kb.c \
+        -o "${test_dir}/test_app_kb"
+    "${test_dir}/test_app_kb"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
+        tests/test_app_lang.c main/app_lang.c \
+        -o "${test_dir}/test_app_lang"
+    "${test_dir}/test_app_lang"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Icomponents/bsp/src \
         tests/test_bsp_display_rounding.c components/bsp/src/bsp_display_rounding.c \
         -o "${test_dir}/test_bsp_display_rounding"

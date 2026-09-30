@@ -11,3 +11,7 @@ managed_components/
 /.agents/skills/passport-build
 /.agents/skills/passport-device-test
 /.agents/skills/passport-debug
+
+# Source font (15 MB) is re-downloadable; the generated subset app_font_sc_16.c
+# is committed. Source URL and SHA-256 are recorded in assets/README.md.
+assets/fonts/SourceHanSansSC-Regular.otf
